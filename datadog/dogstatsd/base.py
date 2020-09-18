@@ -117,17 +117,22 @@ class DogStatsd(object):
         Note: connect the socket before assigning it to the class instance to
         avoid bad thread race conditions.
         """
-        with self.lock:
-            if not self.socket:
-                if self.socket_path is not None:
-                    sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-                    sock.connect(self.socket_path)
-                    sock.setblocking(0)
+        if not self.socket:
+            if self.socket_path is not None:
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+                sock.setblocking(0)
+                sock.connect(self.socket_path)
+                with self.lock:
+                    print("Locking socket: {}".format(self.socket_path))
                     self.socket = sock
-                else:
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    sock.connect((self.host, self.port))
+            else:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.setblocking(0)
+                sock.connect((self.host, self.port))
+                with self.lock:
+                    print("Locking socket: {} {}".format(self.host, self.port))
                     self.socket = sock
+                    print("socket set: {} {}".format(self.host, self.port))
 
         return self.socket
 
@@ -293,9 +298,12 @@ class DogStatsd(object):
         except socket.timeout:
             # dogstatsd is overflowing, drop the packets (mimicks the UDP behaviour)
             return
-        except (socket.error, socket.herror, socket.gaierror) as se:
-            log.warning("Error submitting packet: {}, dropping the packet and closing the socket".format(se))
+        except (socket.error) as se:
+            log.warning("Error (1) submitting packet: {}, dropping the packet and closing the socket".format(se))
             self.close_socket()
+        except (socket.error, socket.herror, socket.gaierror) as se:
+            log.warning("Error (2) submitting packet: {}, dropping the packet and closing the socket".format(se))
+            # self.close_socket()
         except Exception as e:
             log.error("Unexpected error: %s", str(e))
             return
